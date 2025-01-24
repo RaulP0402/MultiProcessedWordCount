@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <Kernel/sys/wait.h>
+#include <time.h>
 
 #define MAX_PROC 100
 #define MAX_FORK 1000
@@ -17,13 +19,13 @@ typedef struct {
 	int charcount;
 } count_t;
 
-/*
-typedef struct plist_t {
+typedef struct {
 	int pid;
-	int offset;
+	long offset;
+	long lengthAssigned;
 	int pipefd[2];
 } plist_t;
-*/
+
 
 int CRASH = 0;
 
@@ -71,8 +73,8 @@ int main(int argc, char **argv)
 	long fsize;
 	FILE *fp;
 	int numJobs;
-	//plist_t plist[MAX_PROC];
-	count_t total, count;
+	plist_t plist[MAX_PROC]; // array of processes
+	count_t total, count, result;
 	int i, pid, status;
 	int nFork = 0;
 
@@ -92,10 +94,6 @@ int main(int argc, char **argv)
 	numJobs = atoi(argv[1]);
 	if(numJobs > MAX_PROC) numJobs = MAX_PROC;
 
-	total.linecount = 0;
-	total.wordcount = 0;
-	total.charcount = 0;
-
 	// Open file in read-only mode
 	fp = fopen(argv[2], "r");
 
@@ -107,26 +105,35 @@ int main(int argc, char **argv)
 
 	fseek(fp, 0L, SEEK_END);
 	fsize = ftell(fp);
-
 	fclose(fp);
-	// calculate file offset and size to read for each child
+	long sizePerProcesss = fsize / numJobs;	// Work load per child
+	long remainder = fsize % numJobs; 
 
 	for(i = 0; i < numJobs; i++) {
-		//set pipe;
+		plist[i].offset = sizePerProcesss * i; 			// Calculate offset 
+		plist[i].lengthAssigned = sizePerProcesss;		// assign length to process
+
+		if ((i == numJobs - 1) && remainder) {
+			plist[i].lengthAssigned += remainder;
+		}
 
 		if(nFork++ > MAX_FORK) return 0;
 
+		pipe(plist[i].pipefd);							//set pipe;
 		pid = fork();
 		if(pid < 0) {
 			printf("Fork failed.\n");
-		} else if(pid == 0) {
-			// Child
+		} else if(pid == 0) { // Child
 			fp = fopen(argv[2], "r");
-			count = word_count(fp, 0, fsize);
+			count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
+
 			// send the result to the parent through pipe
+			write(plist[i].pipefd[1], &count, sizeof(count_t)); // Write count object to pipe
+			close(plist[i].pipefd[1]);
 			fclose(fp);
 			return 0;
 		}
+		plist[i].pid = pid;
 	}
 
 	// Parent
@@ -135,11 +142,41 @@ int main(int argc, char **argv)
 	// read the result of normalliy terminated child
 	// re-crete new child if there is one or more failed child
 	// close pipe
+	for (int i = 0; i < numJobs; i++) {
+		waitpid(plist[i].pid, &status, 0);
+
+		// While the child process continues to fail, relaunch
+		while (WIFSIGNALED(status)) {
+			// printf("[DEBUG] [pid %d] crashed, trying again.\n", plist[i].pid);
+
+			// Launch new process to replace this
+			pid = fork();
+			if (pid < 0) printf("Fork failed.\n");
+			else if (pid == 0) {
+				fp = fopen(argv[2], "r");
+				count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
+
+				write(plist[i].pipefd[1], &count, sizeof(count_t));
+				close(plist[i].pipefd[1]);
+				fclose(fp);
+				return 0;
+			}
+			plist[i].pid = pid;
+			waitpid(plist[i].pid, &status, 0);
+		}
+	
+		read(plist[i].pipefd[0], &result, sizeof(count_t));
+		close(plist[i].pipefd[0]);
+
+		total.linecount += result.linecount;
+		total.wordcount += result.wordcount;
+		total.charcount += result.charcount;
+	}
 
 	printf("\n========== Final Results ================\n");
-	printf("Total Lines : %d \n", count.linecount);
-	printf("Total Words : %d \n", count.wordcount);
-	printf("Total Characters : %d \n", count.charcount);
+	printf("Total Lines : %d \n", total.linecount);
+	printf("Total Words : %d \n", total.wordcount);
+	printf("Total Characters : %d \n", total.charcount);
 	printf("=========================================\n");
 
 	return(0);
