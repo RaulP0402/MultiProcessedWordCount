@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <Kernel/sys/wait.h>
 #include <time.h>
 
 #define MAX_PROC 100
@@ -25,7 +24,6 @@ typedef struct {
 	long lengthAssigned;
 	int pipefd[2];
 } plist_t;
-
 
 int CRASH = 0;
 
@@ -107,19 +105,24 @@ int main(int argc, char **argv)
 	fsize = ftell(fp);
 	fclose(fp);
 	long sizePerProcesss = fsize / numJobs;	// Work load per child
-	long remainder = fsize % numJobs; 
+	long remainder = fsize % numJobs; 		// Leftover work to be distributed
 
 	for(i = 0; i < numJobs; i++) {
 		plist[i].offset = sizePerProcesss * i; 			// Calculate offset 
 		plist[i].lengthAssigned = sizePerProcesss;		// assign length to process
-
+		
+		// Assign the rest of the work (remainder) to last job if needed
 		if ((i == numJobs - 1) && remainder) {
 			plist[i].lengthAssigned += remainder;
 		}
 
 		if(nFork++ > MAX_FORK) return 0;
 
-		pipe(plist[i].pipefd);							//set pipe;
+		// Set pipe 
+		if (pipe(plist[i].pipefd) == -1) {
+			perror("Error creating pipe.");
+        	exit(EXIT_FAILURE);  // Exit with failure status
+		}
 		pid = fork();
 		if(pid < 0) {
 			printf("Fork failed.\n");
@@ -128,8 +131,8 @@ int main(int argc, char **argv)
 			count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
 
 			// send the result to the parent through pipe
-			write(plist[i].pipefd[1], &count, sizeof(count_t)); // Write count object to pipe
-			close(plist[i].pipefd[1]);
+			write(plist[i].pipefd[1], &count, sizeof(count_t)); // Write result to pipe
+			close(plist[i].pipefd[1]); // Close write end of pipe
 			fclose(fp);
 			return 0;
 		}
@@ -142,12 +145,11 @@ int main(int argc, char **argv)
 	// read the result of normalliy terminated child
 	// re-crete new child if there is one or more failed child
 	// close pipe
-	for (int i = 0; i < numJobs; i++) {
+	for (i = 0; i < numJobs; i++) {
 		waitpid(plist[i].pid, &status, 0);
 
-		// While the child process continues to fail, relaunch
+		// While the child process continues to exit irregularly
 		while (WIFSIGNALED(status)) {
-			// printf("[DEBUG] [pid %d] crashed, trying again.\n", plist[i].pid);
 
 			// Launch new process to replace this
 			pid = fork();
@@ -156,18 +158,19 @@ int main(int argc, char **argv)
 				fp = fopen(argv[2], "r");
 				count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
 
-				write(plist[i].pipefd[1], &count, sizeof(count_t));
-				close(plist[i].pipefd[1]);
+				write(plist[i].pipefd[1], &count, sizeof(count_t));	// Write result to pipe
+				close(plist[i].pipefd[1]);	// Close write end of pipe
 				fclose(fp);
 				return 0;
 			}
 			plist[i].pid = pid;
 			waitpid(plist[i].pid, &status, 0);
 		}
-	
-		read(plist[i].pipefd[0], &result, sizeof(count_t));
-		close(plist[i].pipefd[0]);
 
+		read(plist[i].pipefd[0], &result, sizeof(count_t));	// Parent reads result written by child
+		close(plist[i].pipefd[0]);	// Close read end of pipe
+
+		// Add results to total
 		total.linecount += result.linecount;
 		total.wordcount += result.wordcount;
 		total.charcount += result.charcount;
