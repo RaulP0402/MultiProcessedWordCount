@@ -6,8 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/wait.h>
-#include <time.h>
 
 #define MAX_PROC 100
 #define MAX_FORK 1000

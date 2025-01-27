@@ -7,4 +7,4 @@ wc_mul: wc_mul.c
 	$(CC) wc_mul.c -g -o wc_mul
 
 clean:
-	rm -rf wc wc_mul *dSYM
+	rm -rf wc wc_mul
