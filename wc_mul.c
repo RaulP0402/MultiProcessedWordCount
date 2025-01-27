@@ -70,7 +70,7 @@ int main(int argc, char **argv)
 	FILE *fp;
 	int numJobs;
 	plist_t plist[MAX_PROC]; // array of processes
-	count_t total, count, result;
+	count_t total = {0, 0, 0}, count, result;
 	int i, pid, status;
 	int nFork = 0;
 
