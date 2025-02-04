@@ -151,6 +151,7 @@ int main(int argc, char **argv)
 	while (successfulJobs < numJobs) {
 
 		for (i = 0; i < numJobs; i++) {
+			if (plist[i].finished) continue;
 			waitpid(plist[i].pid, &plist[i].status, 0);
 
 			// If the child exited abnormally, launch a new child process
