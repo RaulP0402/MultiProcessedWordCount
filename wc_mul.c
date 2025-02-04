@@ -18,11 +18,11 @@ typedef struct {
 } count_t;
 
 typedef struct {
-	int pid;
-	long offset;
-	long lengthAssigned;
-	int pipefd[2];
-	bool finished;
+	int pid;				// Process ID
+	long offset;			// Offset for process
+	long lengthAssigned;	// Length assigned to process
+	int pipefd[2];			// file descriptor for pipe
+	bool finished;			// status on whether final status has been processed
 	int status;
 } plist_t;
 
@@ -89,7 +89,6 @@ int main(int argc, char **argv)
 	}
 	printf("CRASH RATE: %d\n", CRASH);
 
-
 	numJobs = atoi(argv[1]);
 	if(numJobs > MAX_PROC) numJobs = MAX_PROC;
 
@@ -105,6 +104,7 @@ int main(int argc, char **argv)
 	fseek(fp, 0L, SEEK_END);
 	fsize = ftell(fp);
 	fclose(fp);
+
 	long sizePerProcesss = fsize / numJobs;	// Work load per child
 	long remainder = fsize % numJobs; 		// Leftover work to be distributed
 
@@ -149,7 +149,6 @@ int main(int argc, char **argv)
 	// close pipe
 	int successfulJobs = 0;
 	while (successfulJobs < numJobs) {
-		successfulJobs = 0;
 
 		for (i = 0; i < numJobs; i++) {
 			waitpid(plist[i].pid, &plist[i].status, 0);
@@ -181,8 +180,8 @@ int main(int argc, char **argv)
 					total.wordcount += result.wordcount;
 					total.charcount += result.charcount;
 					plist[i].finished = true;
+					successfulJobs++;
 				}
-				successfulJobs++;
 			}
 		}
 	}
