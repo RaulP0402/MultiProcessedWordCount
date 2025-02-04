@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #define MAX_PROC 100
 #define MAX_FORK 1000
@@ -21,6 +22,8 @@ typedef struct {
 	long offset;
 	long lengthAssigned;
 	int pipefd[2];
+	bool finished;
+	int status;
 } plist_t;
 
 int CRASH = 0;
@@ -108,6 +111,7 @@ int main(int argc, char **argv)
 	for(i = 0; i < numJobs; i++) {
 		plist[i].offset = sizePerProcesss * i; 			// Calculate offset 
 		plist[i].lengthAssigned = sizePerProcesss;		// assign length to process
+		plist[i].finished = false;						// Flag to check if process has been finished
 		
 		// Assign the rest of the work (remainder) to last job if needed
 		if ((i == numJobs - 1) && remainder) {
@@ -143,35 +147,44 @@ int main(int argc, char **argv)
 	// read the result of normalliy terminated child
 	// re-crete new child if there is one or more failed child
 	// close pipe
-	for (i = 0; i < numJobs; i++) {
-		waitpid(plist[i].pid, &status, 0);
+	int successfulJobs = 0;
+	while (successfulJobs < numJobs) {
+		successfulJobs = 0;
 
-		// While the child process continues to exit irregularly
-		while (WIFSIGNALED(status)) {
+		for (i = 0; i < numJobs; i++) {
+			waitpid(plist[i].pid, &plist[i].status, 0);
 
-			// Launch new process to replace this
-			pid = fork();
-			if (pid < 0) printf("Fork failed.\n");
-			else if (pid == 0) {
-				fp = fopen(argv[2], "r");
-				count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
+			// If the child exited abnormally, launch a new child process
+			if (WIFSIGNALED(plist[i].status)) {
 
-				write(plist[i].pipefd[1], &count, sizeof(count_t));	// Write result to pipe
-				close(plist[i].pipefd[1]);	// Close write end of pipe
-				fclose(fp);
-				return 0;
+				// Launch new process to replace this
+				pid = fork();
+				if (pid < 0) printf("Fork failed.\n");
+				else if (pid == 0) {
+					fp = fopen(argv[2], "r");
+					count = word_count(fp, plist[i].offset, plist[i].lengthAssigned);
+
+					write(plist[i].pipefd[1], &count, sizeof(count_t));	// Write result to pipe
+					close(plist[i].pipefd[1]);							// Close write end of pipe
+					fclose(fp);
+					return 0;
+				}
+				plist[i].pid = pid;
+				
+			} else {
+				if (!plist[i].finished) {
+					read(plist[i].pipefd[0], &result, sizeof(count_t));	// Parent reads result written by child
+					close(plist[i].pipefd[0]);							// Close read end of pipe
+
+					// Add results to total
+					total.linecount += result.linecount;
+					total.wordcount += result.wordcount;
+					total.charcount += result.charcount;
+					plist[i].finished = true;
+				}
+				successfulJobs++;
 			}
-			plist[i].pid = pid;
-			waitpid(plist[i].pid, &status, 0);
 		}
-
-		read(plist[i].pipefd[0], &result, sizeof(count_t));	// Parent reads result written by child
-		close(plist[i].pipefd[0]);	// Close read end of pipe
-
-		// Add results to total
-		total.linecount += result.linecount;
-		total.wordcount += result.wordcount;
-		total.charcount += result.charcount;
 	}
 
 	printf("\n========== Final Results ================\n");
