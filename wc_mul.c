@@ -23,7 +23,7 @@ typedef struct {
 	long lengthAssigned;	// Length assigned to process
 	int pipefd[2];			// file descriptor for pipe
 	bool finished;			// status on whether final status has been processed
-	int status;
+	int status;				// Holds the status of each process
 } plist_t;
 
 int CRASH = 0;
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 	int numJobs;
 	plist_t plist[MAX_PROC]; // array of processes
 	count_t total = {0, 0, 0}, count, result;
-	int i, pid, status;
+	int i, pid;
 	int nFork = 0;
 
 	if(argc < 3) {
@@ -109,10 +109,10 @@ int main(int argc, char **argv)
 	long remainder = fsize % numJobs; 		// Leftover work to be distributed
 
 	for(i = 0; i < numJobs; i++) {
-		plist[i].offset = sizePerProcesss * i; 			// Calculate offset 
+		plist[i].offset = sizePerProcesss * i; 			// Calculate offset
 		plist[i].lengthAssigned = sizePerProcesss;		// assign length to process
 		plist[i].finished = false;						// Flag to check if process has been finished
-		
+
 		// Assign the rest of the work (remainder) to last job if needed
 		if ((i == numJobs - 1) && remainder) {
 			plist[i].lengthAssigned += remainder;
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
 
 		if(nFork++ > MAX_FORK) return 0;
 
-		// Set pipe 
+		// Set pipe
 		if (pipe(plist[i].pipefd) == -1) {
 			perror("Error creating pipe.");
         	exit(EXIT_FAILURE);  // Exit with failure status
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
 	while (successfulJobs < numJobs) {
 
 		for (i = 0; i < numJobs; i++) {
-			if (plist[i].finished) continue;
+            if (plist[i].finished) continue;
 			waitpid(plist[i].pid, &plist[i].status, 0);
 
 			// If the child exited abnormally, launch a new child process
@@ -170,7 +170,6 @@ int main(int argc, char **argv)
 					return 0;
 				}
 				plist[i].pid = pid;
-				
 			} else {
 				if (!plist[i].finished) {
 					read(plist[i].pipefd[0], &result, sizeof(count_t));	// Parent reads result written by child
@@ -195,4 +194,3 @@ int main(int argc, char **argv)
 
 	return(0);
 }
-
